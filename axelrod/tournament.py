@@ -128,7 +128,7 @@ class Tournament(object):
                 "Tournament results will not be accessible since "
                 "build_results=False and no filename was supplied.")
 
-        if (processes is None) or (on_windows):
+        if processes is None:
             self._run_serial(progress_bar=progress_bar)
         else:
             self._run_parallel(processes=processes, progress_bar=progress_bar)

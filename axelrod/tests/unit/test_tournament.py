@@ -260,7 +260,6 @@ class TestTournament(unittest.TestCase):
         scores = tournament.play(processes=2, progress_bar=False).scores
         self.assertEqual(len(scores), len(players))
 
-    @unittest.skipIf(not axelrod.on_windows, "Test only relevant on Windows.")
     def test_parallel_play_with_writing_to_file_on_windows(self):
         """
         The default setting for `play` is to write to a NamedTemporaryFile.
@@ -274,9 +273,7 @@ class TestTournament(unittest.TestCase):
             turns=axelrod.DEFAULT_TURNS,
             repetitions=self.test_repetitions)
 
-        results = tournament.play(
-            processes=2, progress_bar=False,
-            filename="test_outputs/test_tournament_windows.csv")
+        results = tournament.play(processes=2, progress_bar=False, filename=self.filename)
         self.assertIsInstance(results, axelrod.ResultSet)
         self.assertEqual(tournament.num_interactions, 75)
 
