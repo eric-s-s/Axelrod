@@ -2,8 +2,9 @@ from collections import defaultdict
 import csv
 import logging
 from multiprocessing import Process, Queue, cpu_count
-from tempfile import NamedTemporaryFile
+from tempfile import mkstemp
 import warnings
+import os
 
 import tqdm
 
@@ -16,6 +17,8 @@ from .match_generator import MatchGenerator
 from .result_set import ResultSetFromFile, ResultSet
 
 from typing import List, Tuple
+
+PROGRESS_BAR = None
 
 
 class Tournament(object):
@@ -69,22 +72,21 @@ class Tournament(object):
                                               noise=self.noise,
                                               edges=edges)
         self._logger = logging.getLogger(__name__)
+        self.filename = None  # type: str
+        self.interactions_dict = {}  # type: dict
 
     def setup_output(self, filename=None, in_memory=False):
         """Open a CSV writer for tournament output."""
+        cleanup_on_aisle_three = False
         if in_memory:
             self.interactions_dict = {}
-            self.writer = None
         else:
             if filename:
-                self.outputfile = open(filename, 'w')
+                self.filename = filename
             else:
-                # Setup a temporary file
-                self.outputfile = NamedTemporaryFile(mode='w')
-                filename = self.outputfile.name
-            self.writer = csv.writer(self.outputfile, lineterminator='\n')
-            # Save filename for loading ResultSet later
-            self.filename = filename
+                self.filename = mkstemp()[1]
+                cleanup_on_aisle_three = True
+        return cleanup_on_aisle_three
 
     def play(self, build_results: bool = True, filename: str = None,
              processes: int = None, progress_bar: bool = True,
@@ -115,13 +117,14 @@ class Tournament(object):
         axelrod.ResultSetFromFile
         """
         if progress_bar:
-            self.progress_bar = tqdm.tqdm(total=len(self.match_generator),
-                                          desc="Playing matches")
+            global PROGRESS_BAR
+            PROGRESS_BAR = tqdm.tqdm(total=len(self.match_generator),
+                                     desc="Playing matches")
 
         if on_windows and (filename is None):  # pragma: no cover
             in_memory = True
 
-        self.setup_output(filename, in_memory)
+        do_cleanup = self.setup_output(filename, in_memory)
 
         if not build_results and not filename:
             warnings.warn(
@@ -134,18 +137,17 @@ class Tournament(object):
             self._run_parallel(processes=processes, progress_bar=progress_bar)
 
         if progress_bar:
-            self.progress_bar.close()
+            PROGRESS_BAR.close()
 
         # Make sure that python has finished writing to disk
-        if not in_memory:
-            self.outputfile.flush()
 
         if build_results:
             return self._build_result_set(progress_bar=progress_bar,
                                           keep_interactions=keep_interactions,
                                           in_memory=in_memory)
-        elif not in_memory:
-            self.outputfile.close()
+        if do_cleanup:
+            os.remove(self.filename)
+            self.filename = None
 
     def _build_result_set(self, progress_bar: bool = True,
                           keep_interactions: bool = False,
@@ -166,7 +168,6 @@ class Tournament(object):
                 players=[str(p) for p in self.players],
                 keep_interactions=keep_interactions,
                 game=self.game)
-            self.outputfile.close()
         else:
             result_set = ResultSet(
                 players=[str(p) for p in self.players],
@@ -193,30 +194,34 @@ class Tournament(object):
             self._write_interactions(results)
 
             if progress_bar:
-                self.progress_bar.update(1)
+                PROGRESS_BAR.update(1)
 
         return True
 
     def _write_interactions(self, results):
         """Write the interactions to file or to a dictionary"""
-        if self.writer is not None:
+        if self.filename is not None:
           self._write_interactions_to_file(results)
         elif self.interactions_dict is not None:
           self._write_interactions_to_dict(results)
 
     def _write_interactions_to_file(self, results):
         """Write the interactions to csv."""
-        for index_pair, interactions in results.items():
-            for interaction in interactions:
-                row = list(index_pair)
-                row.append(str(self.players[index_pair[0]]))
-                row.append(str(self.players[index_pair[1]]))
-                history1 = actions_to_str([i[0] for i in interaction])
-                history2 = actions_to_str([i[1] for i in interaction])
-                row.append(history1)
-                row.append(history2)
-                self.writer.writerow(row)
-                self.num_interactions += 1
+        # self.outputfile = open(filename, 'w')
+        # csv.writer(self.outputfile, lineterminator='\n')
+        with open(self.filename, 'w') as f:
+            writer = csv.writer(f, lineterminator='\n')
+            for index_pair, interactions in results.items():
+                for interaction in interactions:
+                    row = list(index_pair)
+                    row.append(str(self.players[index_pair[0]]))
+                    row.append(str(self.players[index_pair[1]]))
+                    history1 = actions_to_str([i[0] for i in interaction])
+                    history2 = actions_to_str([i[1] for i in interaction])
+                    row.append(history1)
+                    row.append(history2)
+                    writer.writerow(row)
+                    self.num_interactions += 1
 
     def _write_interactions_to_dict(self, results):
         """Write the interactions to memory"""
@@ -263,7 +268,7 @@ class Tournament(object):
         -------
         integer
         """
-        if (2 <= processes <= cpu_count()):
+        if 2 <= processes <= cpu_count():
             n_workers = processes
         else:
             n_workers = cpu_count()
@@ -314,7 +319,7 @@ class Tournament(object):
                 self._write_interactions(results)
 
                 if progress_bar:
-                    self.progress_bar.update(1)
+                    PROGRESS_BAR.update(1)
         return True
 
     def _worker(self, work_queue: Queue, done_queue: Queue):
