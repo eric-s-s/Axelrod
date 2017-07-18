@@ -4,7 +4,7 @@ strategy.
 
 See the various Meta strategies for another type of transformation.
 """
-
+from functools import wraps, update_wrapper
 import collections
 import copy
 import inspect
@@ -56,6 +56,10 @@ def StrategyTransformerFactory(strategy_wrapper, name_prefix=None,
                 self.name_prefix = kwargs["name_prefix"]
             else:
                 self.name_prefix = name_prefix
+
+
+        # def __reduce__(self):
+        #     pass
 
         def __call__(self, PlayerClass):
             """
@@ -141,20 +145,43 @@ def StrategyTransformerFactory(strategy_wrapper, name_prefix=None,
                     prefix = ', '
                 return name
 
+
             # Define a new class and wrap the strategy method
             # Dynamically create the new class
+
+            def strategy_reduce(self_):
+                klass = self_.original_class
+                return self_.decorator, (klass,), self_.__dict__
+
             new_class = type(
                 new_class_name, (PlayerClass,),
                 {
                     "name": name,
                     "original_class": PlayerClass,
                     "strategy": strategy,
+                    "decorator": self,
                     "__repr__": __repr__,
                     "__module__": PlayerClass.__module__,
                     "classifier": classifier,
                     "__doc__": PlayerClass.__doc__,
+                    "__reduce__": strategy_reduce
                 })
             return new_class
+
+            # @wraps(PlayerClass)
+            # class NewClass(PlayerClass):
+            #     def __init__(self, *args_, **kwargs_):
+            #         super(NewClass, self).__init__(*args_, **kwargs_)
+            #         self.name = name
+            #         self.original_class = PlayerClass
+            #         self.__repr__ = __repr__
+            #         self.__module__ = PlayerClass.__module__
+            #         self.classifier = classifier
+            #         self.__doc__ = PlayerClass.__doc__
+            #
+            #
+            #
+            # return NewClass
     return Decorator
 
 
@@ -204,8 +231,121 @@ def flip_wrapper(player, opponent, action):
     return action.flip()
 
 
-FlipTransformer = StrategyTransformerFactory(
-    flip_wrapper, name_prefix="Flipped")
+# FlipTransformer = StrategyTransformerFactory(
+#     flip_wrapper, name_prefix="Flipped")
+
+
+class FlipTransformer(object):
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+        self.name_prefix = 'Flipped'
+
+    # def __reduce__(self):
+    #     pass
+
+    def __call__(self, PlayerClass):
+        """
+        Parameters
+        ----------
+        PlayerClass: A subclass of axelrod.Player, e.g. Cooperator
+            The Player Class to modify
+
+        Returns
+        -------
+        new_class, class object
+            A class object that can create instances of the modified
+            PlayerClass
+        """
+
+        args = self.args
+        kwargs = self.kwargs
+        try:
+            # If "name_prefix" in kwargs remove as only want decorator
+            # arguments
+            del kwargs["name_prefix"]
+        except KeyError:
+            pass
+        try:
+            del kwargs["reclassifier"]
+        except KeyError:
+            pass
+
+        # Is the original strategy method a static method?
+        signature = inspect.signature(PlayerClass.strategy)
+        strategy_args = [p.name for p in signature.parameters.values()
+                         if p.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD]
+        is_static = True
+        if len(strategy_args) > 1:
+            is_static = False
+
+        # Define the new strategy method, wrapping the existing method
+        # with `strategy_wrapper`
+        def strategy(self, opponent):
+
+            if is_static:
+                # static method
+                proposed_action = PlayerClass.strategy(opponent)
+            else:
+                proposed_action = PlayerClass.strategy(self, opponent)
+
+            # Apply the wrapper
+            return flip_wrapper(self, opponent, proposed_action,
+                                    *args, **kwargs)
+
+        # Modify the PlayerClass name
+        new_class_name = PlayerClass.__name__
+        name = PlayerClass.name
+        name_prefix = self.name_prefix
+        if name_prefix:
+            # Modify the Player name (class variable inherited from Player)
+            new_class_name = ''.join([name_prefix, PlayerClass.__name__])
+            # Modify the Player name (class variable inherited from Player)
+            name = ' '.join([name_prefix, PlayerClass.name])
+
+        classifier = copy.deepcopy(PlayerClass.classifier)  # Copy
+
+
+        # Define the new __repr__ method to add the wrapper arguments
+        # at the end of the name
+        def __repr__(self):
+            name = PlayerClass.__repr__(self)
+            # add eventual transformers' arguments in name
+            prefix = ': '
+            for arg in args:
+                try:
+                    # Action has .name but should not be made into a list
+                    if not any(isinstance(el, Action) for el in arg):
+                        arg = [player.name for player in arg]
+                except AttributeError:
+                    pass
+                except TypeError:
+                    pass
+                name = ''.join([name, prefix, str(arg)])
+                prefix = ', '
+            return name
+
+        # Define a new class and wrap the strategy method
+        # Dynamically create the new class
+
+        def strategy_reduce(self_):
+            klass = self_.original_class
+            return self_.decorator, (klass,), self_.__dict__
+
+        new_class = type(
+            new_class_name, (PlayerClass,),
+            {
+                "name": name,
+                "original_class": PlayerClass,
+                "strategy": strategy,
+                "decorator": self,
+                "__repr__": __repr__,
+                "__module__": PlayerClass.__module__,
+                "classifier": classifier,
+                "__doc__": PlayerClass.__doc__,
+                "__reduce__": strategy_reduce
+            })
+        return new_class
 
 
 def dual_wrapper(player, opponent, proposed_action):
