@@ -235,6 +235,15 @@ def flip_wrapper(player, opponent, action):
 #     flip_wrapper, name_prefix="Flipped")
 
 
+
+class Reconstitutor(object):
+    def __init__(self):
+        pass
+
+    def __call__(self, decorator, player_class):
+        return decorator(player_class)()
+
+
 class FlipTransformer(object):
     def __init__(self, *args, **kwargs):
         self.args = args
@@ -308,8 +317,8 @@ class FlipTransformer(object):
 
         # Define the new __repr__ method to add the wrapper arguments
         # at the end of the name
-        def __repr__(self):
-            name = PlayerClass.__repr__(self)
+        def __repr__(self_):
+            name_ = PlayerClass.__repr__(self_)
             # add eventual transformers' arguments in name
             prefix = ': '
             for arg in args:
@@ -321,16 +330,16 @@ class FlipTransformer(object):
                     pass
                 except TypeError:
                     pass
-                name = ''.join([name, prefix, str(arg)])
+                name_ = ''.join([name_, prefix, str(arg)])
                 prefix = ', '
-            return name
+            return name_
 
         # Define a new class and wrap the strategy method
         # Dynamically create the new class
 
         def strategy_reduce(self_):
             klass = self_.original_class
-            return self_.decorator, (klass,), self_.__dict__
+            return Reconstitutor(), (self_.decorator, klass,)
 
         new_class = type(
             new_class_name, (PlayerClass,),
