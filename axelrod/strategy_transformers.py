@@ -21,6 +21,10 @@ C, D = Action.C, Action.D
 # lead to unexpected behavior, such as when FlipTransform is applied to
 # Alternator.
 
+class _Thing(object):
+    def __call__(self, *args, **kwargs):
+        obj = _Thing()
+
 
 def StrategyTransformerFactory(strategy_wrapper, name_prefix=None,
                                reclassifier=None):
@@ -58,8 +62,8 @@ def StrategyTransformerFactory(strategy_wrapper, name_prefix=None,
                 self.name_prefix = name_prefix
 
 
-        # def __reduce__(self):
-        #     pass
+        def __reduce__(self):
+            return StrategyTransformerFactory, (strategy_wrapper, name_prefix, reclassifier), self.__dict__
 
         def __call__(self, PlayerClass):
             """
@@ -149,9 +153,26 @@ def StrategyTransformerFactory(strategy_wrapper, name_prefix=None,
             # Define a new class and wrap the strategy method
             # Dynamically create the new class
 
+
+
             def strategy_reduce(self_):
-                klass = self_.original_class
-                return self_.decorator, (klass,), self_.__dict__
+                print('in reduce')
+                print(self_.decorator)
+                print(PlayerClass)
+                pc = self_.original_class
+                original_name = pc.__name__
+                decorators = [self_.decorator]
+                print('mor', pc.mro())
+                for klass in pc.mro():
+                    if hasattr(klass, 'decorator'):
+                        print('tripped')
+                        decorators.append(klass.decorator)
+                    if klass in axl.strategies:
+                        pc = klass
+                        break
+                print(pc)
+                return Reconstitutor(), (
+                decorators, pc, original_name), self_.__dict__
 
             new_class = type(
                 new_class_name, (PlayerClass,),
@@ -234,21 +255,38 @@ def flip_wrapper(player, opponent, action):
 # FlipTransformer = StrategyTransformerFactory(
 #     flip_wrapper, name_prefix="Flipped")
 
-
+import axelrod as axl
 
 class Reconstitutor(object):
     def __init__(self):
         pass
 
-    def __call__(self, decorator, player_class):
-        return decorator(player_class)()
+    def __call__(self, decorators, player_class, original_name):
+        use_class = player_class
+        # for klass in player_class.mro():
+        #     if klass in axl.strategies:
+        #         use_class = klass
+        #         break
+        print('Class: ', use_class.__name__)
+        print('decorators', decorators)
+        for decorator in decorators:
+            use_class = decorator(use_class)
+            print('in for', type(use_class))
+        print('use_class', use_class)
+        obj = use_class()
+        obj.__class__.__name__ = original_name
+        print('return', obj.__class__.__name__)
+        return obj
 
 
 class FlipTransformer(object):
     def __init__(self, *args, **kwargs):
         self.args = args
         self.kwargs = kwargs
-        self.name_prefix = 'Flipped'
+        if "name_prefix" in kwargs:
+            self.name_prefix = kwargs["name_prefix"]
+        else:
+            self.name_prefix = 'Flipped'
 
     # def __reduce__(self):
     #     pass
@@ -338,8 +376,30 @@ class FlipTransformer(object):
         # Dynamically create the new class
 
         def strategy_reduce(self_):
-            klass = self_.original_class
-            return Reconstitutor(), (self_.decorator, klass,)
+            print('in reduce')
+            print(self_.decorator)
+            print(PlayerClass)
+            pc = self_.original_class
+            original_name = pc.__name__
+            decorators = [self_.decorator]
+            print('mor', pc.mro())
+            for klass in pc.mro():
+                if hasattr(klass, 'decorator'):
+                    print('tripped')
+                    decorators.append(klass.decorator)
+                if klass in axl.strategies:
+                    pc = klass
+                    break
+            print(pc)
+            return Reconstitutor(), (decorators, pc, original_name), self_.__dict__
+
+        # if hasattr(PlayerClass, 'deocrators'):
+        #     print('added to decorators')
+        #     decorators = PlayerClass.decorators[:]
+        #     decorators.insert(0, self)
+        # else:
+        #     print('only this called')
+        #     decorators = [self]
 
         new_class = type(
             new_class_name, (PlayerClass,),
